@@ -43,8 +43,11 @@ class CameraException(Exception):
 
 
 class Camera_cv:
-    def __init__(self, picture_size=(10000,10000), camera_rotate=False):
-        self.picture_size = picture_size   # Requested camera resolution
+    def __init__(self, resolution=(10000,10000), camera_rotate=False):
+        if resolution[0]>0 and resolution[1]>0:
+            self.resolution = resolution   # Requested camera resolution
+        else:
+            self.resolution = (10000,10000) # Just use highest resolution possible
         self.rotate = camera_rotate        # Is camera on its side?  
 
         global cv_enabled
@@ -58,8 +61,8 @@ class Camera_cv:
             # Pick the video resolution to capture at.
             # If requested resolution is too high, OpenCV uses next best.
             # (E.g., 10000x10000 will force highest camera resolution).
-            self.cap.set(cv.cv.CV_CAP_PROP_FRAME_WIDTH,  picture_size[0])
-            self.cap.set(cv.cv.CV_CAP_PROP_FRAME_HEIGHT, picture_size[1])
+            self.cap.set(cv.cv.CV_CAP_PROP_FRAME_WIDTH,  resolution[0])
+            self.cap.set(cv.cv.CV_CAP_PROP_FRAME_HEIGHT, resolution[1])
 
             # Warm up web cam for quick start later and to double check driver
             r, dummy = self.cap.read()
@@ -85,6 +88,19 @@ class Camera_cv:
             fps = frames/(end-start)
             print("Camera is capturing at %.2f fps" % (fps))
 
+    def reinit(self):
+        '''Close and reopen the video device. 
+        This is mainly for debugging video capture problems.
+        '''
+        
+        self.cap.release()
+        self.cap = cv.VideoCapture(-1)
+        r = self.cap.grab()
+        if r:
+            self.cv_enabled=True
+        else:
+            self.cv_enabled=False
+
     def set_rotate(self, camera_rotate):
         self.rotate = camera_rotate
 
@@ -105,8 +121,22 @@ class Camera_cv:
         will be quickly decimated using numpy to be at most that large.
         """
 
+        global cv_enabled
+        if not cv_enabled:
+            cv_enabled=True
+            self.__init__()     # Try again to open the camera (e.g, just plugged in)
+            if not cv_enabled:  # Still failed?
+                raise CameraException("No camera found using OpenCV!")
+            
         # Grab a camera frame
         r, f = self.cap.read()
+
+        if not r:
+            # We will never get here since OpenCV 2.4.9.1 is buggy
+            # and never returns error codes once a webcam has been opened.
+            # This is very annoying.
+            cv_enabled=False
+            raise CameraException("Error capturing frame using OpenCV!")
 
         # Optionally reduce frame size by decimation (nearest neighbor)
         if max_size:
@@ -120,6 +150,7 @@ class Camera_cv:
         # Convert from OpenCV format to Surfarray
         f=cv.cvtColor(f,cv.COLOR_BGR2RGB)
         f=numpy.rot90(f)        # OpenCV swaps rows and columns
+
         return f
 
     def get_preview_pygame_surface(self, max_size=None):
@@ -143,8 +174,12 @@ class Camera_cv:
 
 
     def take_picture(self, filename="/tmp/picture.jpg"):
+        global cv_enabled
         if cv_enabled:
             r, frame = self.cap.read()
+            if not r:
+                cv_enabled=False
+                raise CameraException("Error capturing frame using OpenCV!")
             if self.rotate:
                 frame=numpy.rot90(frame)
             cv.imwrite(filename, frame)
@@ -159,9 +194,9 @@ class Camera_cv:
 class Camera_gPhoto:
     """Camera class providing functionality to take pictures using gPhoto 2"""
 
-    def __init__(self, picture_size, camera_rotate=False):
-        self.picture_size = picture_size # XXX Not used for gphoto?
-        self.rotate = camera_rotate # XXX Not used for gphoto?
+    def __init__(self, resolution=(10000,10000), camera_rotate=False):
+        self.resolution = resolution # XXX Not used for gphoto?
+        self.rotate = camera_rotate  # XXX Not needed for gphoto?
 
         # Print the capabilities of the connected camera
         try:
@@ -176,6 +211,10 @@ class Camera_gPhoto:
             print('Warning: Listing camera capabilities failed (' + e.message + ')')
         except gpExcept as e:
             print('Warning: Listing camera capabilities failed (' + e.message + ')')
+
+    def reinit(self):
+        "Not needed for gphoto."
+        return
 
     def call_gphoto(self, action, filename):
         # Try to run the command
