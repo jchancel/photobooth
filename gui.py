@@ -112,6 +112,10 @@ class GUI_PyGame:
             image = pygame.image.load(filename)
         except pygame.error as e:
             raise GuiException("ERROR: Can't open image '" + filename + "': " + e.message)
+        # If the display is rotated CW, rotate the image CCW to compensate.
+        if self.get_rotate():
+            image = pygame.transform.rotate(image, 90)
+
         # Extract image size and determine scaling
         image_size = image.get_rect().size
         image_scale = min([min(a,b)/b for a,b in zip(size, image_size)])
@@ -125,7 +129,8 @@ class GUI_PyGame:
         surface = pygame.Surface(new_size)
         surface.blit(image, (0,0))
         if flip:
-            surface = pygame.transform.flip(surface, True, False)
+            r = self.display_rotate
+            surface = pygame.transform.flip(surface, not r, r)
         self.surface_list.append((surface, offset))
 
 
